@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ELIS CITY — Open World</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#10151c;font-family:Tahoma,Arial,sans-serif}
+#game{position:fixed;inset:0}
+canvas{display:block}
+#hud{position:fixed;inset:0;pointer-events:none;color:#fff}
+#top{position:absolute;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:flex-start;direction:ltr}
+.card{background:rgba(10,14,20,.72);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);border-radius:14px;padding:10px 14px;box-shadow:0 8px 25px #0005}
+#brand{font-size:16px;font-weight:800;letter-spacing:1px}
+#stats{font-size:12px;line-height:1.8;text-align:right;direction:rtl}
+#mission{position:absolute;top:92px;right:14px;width:min(300px,80vw)}
+#mission b{font-size:13px}
+#mission div{font-size:11px;margin-top:5px;color:#dbe7ff}
+#prompt{position:absolute;left:50%;bottom:120px;transform:translateX(-50%);padding:9px 16px;border-radius:30px;background:#111a;color:#fff;font-size:12px;opacity:0;transition:.2s}
+#controls{position:fixed;inset:0;pointer-events:none}
+#stick{position:absolute;left:18px;bottom:22px;width:132px;height:132px;border-radius:50%;background:#ffffff12;border:1px solid #ffffff18;pointer-events:auto;touch-action:none}
+#knob{position:absolute;left:36px;top:36px;width:60px;height:60px;border-radius:50%;background:#ffffff35;border:1px solid #fff4}
+.btn{position:absolute;border:0;border-radius:50%;width:58px;height:58px;background:#ffffff18;color:white;font-weight:700;font-size:12px;border:1px solid #fff3;pointer-events:auto;touch-action:none}
+#act{right:24px;bottom:28px}
+#enter{right:94px;bottom:91px}
+#run{right:24px;bottom:99px}
+#mapBtn{right:94px;bottom:27px}
+#map{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(360px,85vw);height:min(360px,85vw);display:none;background:#10161dcc;border:1px solid #fff2;border-radius:18px;backdrop-filter:blur(12px);padding:15px}
+#map canvas{width:100%;height:100%;background:#273027;border-radius:10px}
+#start{position:absolute;inset:0;background:linear-gradient(135deg,#0b1018,#182333);display:flex;align-items:center;justify-content:center;z-index:5}
+#startBox{width:min(440px,90vw);padding:28px;border-radius:24px;background:#ffffff0b;border:1px solid #fff2;text-align:center;color:white;box-shadow:0 20px 70px #0008}
+#startBox h1{margin:0 0 8px;font-size:34px}
+#startBox p{color:#b9c3d2;font-size:13px;line-height:1.9}
+#startBtn{border:0;border-radius:14px;padding:14px 30px;background:#fff;color:#10151c;font-weight:800;font-size:15px}
+#hint{font-size:10px;color:#8f9aaa;margin-top:14px}
+@media(min-width:900px){
+ #stick{opacity:.65}
+ .btn{opacity:.7}
+}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="start"><div id="startBox">
+<h1>ELIS CITY</h1>
+<p>یک شهر جهان‌باز سه‌بعدی برای مرورگر و موبایل.<br>راه برو، خودرو سوار شو، شهر را بگرد و مأموریت‌ها را انجام بده.</p>
+<button id="startBtn">شروع بازی</button>
+<div id="hint">کنترل رایانه: WASD / جهت‌ها · E ورود/خروج · Shift دویدن · M نقشه</div>
+</div></div>
+<div id="hud">
+ <div id="top">
+  <div class="card" id="brand">ELIS CITY</div>
+  <div class="card" id="stats">پول: <span id="money">2500</span> $<br>وضعیت: <span id="state">پیاده</span></div>
+ </div>
+ <div id="mission" class="card"><b>مأموریت فعال</b><div id="missionText">به نقطه زرد روی نقشه برو.</div></div>
+ <div id="prompt">برای ورود به خودرو E را بزن</div>
+</div>
+<div id="controls">
+ <div id="stick"><div id="knob"></div></div>
+ <button class="btn" id="act">عمل</button>
+ <button class="btn" id="enter">ورود</button>
+ <button class="btn" id="run">دویدن</button>
+ <button class="btn" id="mapBtn">نقشه</button>
+</div>
+<div id="map"><canvas id="mapCanvas" width="330" height="330"></canvas></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+'use strict';
+
+/* ELIS CITY — single-file game
+   All game logic, world generation, UI, vehicles, missions and controls live here.
+*/
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x8bb8d8);
+scene.fog=new THREE.Fog(0x8bb8d8,180,620);
+
+const camera=new THREE.PerspectiveCamera(62,innerWidth/innerHeight,.1,1000);
+const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+document.getElementById('game').appendChild(renderer.domElement);
+
+const hemi=new THREE.HemisphereLight(0xddeeff,0x46515a,2.0);
+scene.add(hemi);
+const sun=new THREE.DirectionalLight(0xffffff,2.6);
+sun.position.set(80,130,70); sun.castShadow=true;
+sun.shadow.mapSize.set(1024,1024);
+sun.shadow.camera.left=-220; sun.shadow.camera.right=220;
+sun.shadow.camera.top=220; sun.shadow.camera.bottom=-220;
+scene.add(sun);
+
+const clock=new THREE.Clock();
+const world=new THREE.Group(); scene.add(world);
+const buildings=[],cars=[],npcs=[],trees=[],lamps=[];
+const colliders=[];
+const roadY=.08;
+
+function mat(c,rough=1,metal=0){
+ return new THREE.MeshStandardMaterial({color:c,roughness:rough,metalness:metal});
+}
+function box(w,h,d,c){
+ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat(c));
+ m.castShadow=true;m.receiveShadow=true;return m;
+}
+function cyl(r,h,c,seg=12){
+ const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,seg),mat(c));
+ m.castShadow=true;m.receiveShadow=true;return m;
+}
+function addGround(){
+ const g=box(720,.5,720,0x4f7250);g.position.y=-.3;world.add(g);
+}
+function road(x,z,w,d){
+ const r=box(w,.16,d,0x34383c);r.position.set(x,roadY,z);world.add(r);
+ const lineMat=mat(0xe4d68c);
+ if(w>d){
+  for(let p=x-w/2+8;p<x+w/2;p+=16){
+   const l=box(8,.025,.18,0xe4d68c);l.position.set(p,.18,z);world.add(l);
+  }
+ }else{
+  for(let p=z-d/2+8;p<z+d/2;p+=16){
+   const l=box(.18,.025,8,0xe4d68c);l.position.set(x,.18,p);world.add(l);
+  }
+ }
+}
+function building(x,z,w,d,h,c){
+ const b=box(w,h,d,c);b.position.set(x,h/2,z);world.add(b);buildings.push(b);
+ const roof=box(w+.3,.15,d+.3,0x303640);roof.position.set(x,h+.05,z);world.add(roof);
+ for(let yy=3;yy<h-1;yy+=3.2){
+  for(let xx=-w/2+1.6;xx<w/2-1;xx+=3.2){
+   const win=box(.9,.9,.05,0x8fc8e8);win.position.set(x+xx,yy,z-d/2-.03);world.add(win);
+   const win2=win.clone();win2.position.z=z+d/2+.03;world.add(win2);
+  }
+ }
+}
+function tree(x,z){
+ const g=new THREE.Group();
+ const t=cyl(.38,3.2,0x70482c);t.position.y=1.6;
+ const crown=new THREE.Mesh(new THREE.IcosahedronGeometry(2.1,1),mat(0x286b3d));
+ crown.position.y=4.0;crown.castShadow=true;
+ g.add(t,crown);g.position.set(x,0,z);world.add(g);trees.push(g);
+}
+function lamp(x,z){
+ const g=new THREE.Group();
+ const pole=cyl(.08,4.5,0x30343a,8);pole.position.y=2.25;
+ const bulb=new THREE.Mesh(new THREE.SphereGeometry(.22,10,8),mat(0xffefad));bulb.position.y=4.55;
+ const light=new THREE.PointLight(0xffe5aa,1.2,15);light.position.y=4.5;
+ g.add(pole,bulb,light);g.position.set(x,0,z);world.add(g);lamps.push(g);
+}
+function makeCar(color,x,z,rot=0,player=false){
+ const g=new THREE.Group();
+ const body=box(2.8,.75,5.1,color);body.position.y=1.0;
+ const cabin=box(2.35,.72,2.45,0x263342);cabin.position.set(0,1.62,.15);
+ const hood=box(2.55,.25,1.15,color);hood.position.set(0,1.32,-1.85);
+ const rear=box(2.55,.25,1.0,color);rear.position.set(0,1.32,1.95);
+ g.add(body,cabin,hood,rear);
+ const wheels=[];
+ for(const sx of [-1.48,1.48])for(const sz of [-1.65,1.65]){
+  const w=cyl(.46,.28,0x151515,16);w.rotation.z=Math.PI/2;w.position.set(sx,.52,sz);g.add(w);wheels.push(w);
+ }
+ const head=mat(0xf9f1c2);for(const sx of [-.78,.78]){
+  const h=box(.48,.25,.08,0xf9f1c2);h.position.set(sx,1.08,-2.58);g.add(h);
+ }
+ g.position.set(x,0,z);g.rotation.y=rot;world.add(g);
+ const obj={group:g,wheels,player,occupied:false,speed:0};
+ cars.push(obj);return obj;
+}
+function makeNPC(x,z){
+ const g=new THREE.Group();
+ const body=box(.65,1.2,.4,0x4b72a4);body.position.y=.9;
+ const head=new THREE.Mesh(new THREE.SphereGeometry(.27,12,10),mat(0xd19a73));head.position.y=1.75;
+ g.add(body,head);g.position.set(x,0,z);world.add(g);
+ npcs.push({group:g,dir:Math.random()*Math.PI*2,t:Math.random()*10});
+}
+function buildCity(){
+ addGround();
+ for(let i=-300;i<=300;i+=60){road(0,i,650,14);road(i,0,14,650);}
+ for(let x=-270;x<=270;x+=60)for(let z=-270;z<=270;z+=60){
+  if(Math.abs(x)<45&&Math.abs(z)<45)continue;
+  const w=24+Math.random()*14,d=24+Math.random()*14,h=10+Math.random()*35;
+  building(x+(Math.random()*8-4),z+(Math.random()*8-4),w,d,h,[
+   0x7b8490,0x9a806f,0x647687,0x8d8d76,0x53606d,0xa08f7a
+  ][Math.floor(Math.random()*6)]);
+ }
+ for(let i=0;i<90;i++){
+  const x=(Math.random()-.5)*620,z=(Math.random()-.5)*620;
+  if(Math.abs(x%60)<11||Math.abs(z%60)<11)continue;
+  tree(x,z);
+ }
+ for(let i=-300;i<=300;i+=30){lamp(7,i);lamp(-7,i);lamp(i,7);lamp(i,-7);}
+ for(let i=0;i<26;i++){
+  const x=(Math.floor(Math.random()*19)-9)*30;
+  const z=(Math.floor(Math.random()*19)-9)*30;
+  if(Math.abs(x)<40&&Math.abs(z)<40)continue;
+  makeCar([0xd34a3a,0x2e6fbe,0xe0b33b,0xeeeeee,0x25292f,0x38a86b][i%6],x,z,(Math.random()>.5?0:Math.PI/2));
+ }
+ for(let i=0;i<42;i++)makeNPC((Math.random()-.5)*500,(Math.random()-.5)*500);
+}
+buildCity();
+
+const player={
+ pos:new THREE.Vector3(0,0,8),
+ yaw:Math.PI,
+ vel:new THREE.Vector3(),
+ run:false,
+ inCar:null,
+ money:2500
+};
+
+const avatar=new THREE.Group();
+const legs=box(.42,.75,.28,0x263e78);legs.position.y=.38;
+const torso=box(.65,1.0,.42,0xd8dce2);torso.position.y=1.2;
+const head=new THREE.Mesh(new THREE.SphereGeometry(.3,14,12),mat(0xd19a73));head.position.y=1.95;
+avatar.add(legs,torso,head);world.add(avatar);
+
+const mission={x:135,z:-125,done:false};
+const marker=new THREE.Mesh(
+ new THREE.TorusGeometry(4,.5,12,32),
+ new THREE.MeshBasicMaterial({color:0xffd43b})
+);
+marker.rotation.x=Math.PI/2;marker.position.set(mission.x,.3,mission.z);world.add(marker);
+
+function nearestCar(){
+ let best=null,dist=999;
+ for(const c of cars){
+  if(c.player)continue;
+  const d=c.group.position.distanceTo(player.pos);
+  if(d<dist){dist=d;best=c;}
+ }
+ return dist<6?best:null;
+}
+function enterExit(){
+ if(player.inCar){
+  const c=player.inCar;
+  player.pos.copy(c.group.position).add(new THREE.Vector3(3,0,0).applyAxisAngle(new THREE.Vector3(0,1,0),c.group.rotation.y));
+  c.occupied=false;c.player=false;player.inCar=null;
+  document.getElementById('state').textContent='پیاده';
+  return;
+ }
+ const c=nearestCar();
+ if(c){c.player=true;c.occupied=true;player.inCar=c;player.pos.copy(c.group.position);player.yaw=c.group.rotation.y;document.getElementById('state').textContent='رانندگی';}
+}
+function interact(){
+ if(!mission.done && player.pos.distanceTo(marker.position)<9){
+  mission.done=true;player.money+=1000;
+  document.getElementById('money').textContent=player.money;
+  document.getElementById('missionText').textContent='مأموریت انجام شد! ۱۰۰۰ دلار دریافت کردی.';
+  marker.visible=false;
+ }else{
+  enterExit();
+ }
+}
+function setCamera(){
+ const target=player.inCar?player.inCar.group.position:avatar.position;
+ const angle=player.inCar?player.inCar.group.rotation.y:player.yaw;
+ const dist=player.inCar?10:8;
+ const desired=new THREE.Vector3(
+  target.x+Math.sin(angle)*dist,
+  target.y+(player.inCar?5.2:4.2),
+  target.z+Math.cos(angle)*dist
+ );
+ camera.position.lerp(desired,.12);
+ camera.lookAt(target.x,target.y+1.0,target.z);
+}
+const keys={};
+addEventListener('keydown',e=>{
+ keys[e.key.toLowerCase()]=true;
+ if(e.key.toLowerCase()==='e')interact();
+ if(e.key.toLowerCase()==='m')toggleMap();
+});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+
+let joyX=0,joyY=0;
+const stick=document.getElementById('stick'),knob=document.getElementById('knob');
+let joyId=null;
+function joy(e){
+ const r=stick.getBoundingClientRect();
+ const p=e.touches?e.touches[0]:e;
+ let x=p.clientX-(r.left+r.width/2),y=p.clientY-(r.top+r.height/2);
+ const max=46,d=Math.hypot(x,y);if(d>max){x=x/d*max;y=y/d*max;}
+ knob.style.transform=`translate(${x}px,${y}px)`;joyX=x/max;joyY=y/max;
+}
+stick.addEventListener('pointerdown',e=>{joyId=e.pointerId;stick.setPointerCapture(e.pointerId);joy(e)});
+stick.addEventListener('pointermove',e=>{if(joyId!==null)joy(e)});
+stick.addEventListener('pointerup',()=>{joyId=null;joyX=joyY=0;knob.style.transform='translate(0,0)'});
+document.getElementById('act').onpointerdown=()=>interact();
+document.getElementById('enter').onpointerdown=()=>enterExit();
+document.getElementById('run').onpointerdown=()=>player.run=true;
+document.getElementById('run').onpointerup=()=>player.run=false;
+document.getElementById('mapBtn').onpointerdown=()=>toggleMap();
+
+function input(){
+ let x=joyX,y=joyY;
+ if(keys.a||keys.arrowleft)x-=1;
+ if(keys.d||keys.arrowright)x+=1;
+ if(keys.w||keys.arrowup)y-=1;
+ if(keys.s||keys.arrowdown)y+=1;
+ const l=Math.hypot(x,y);if(l>1){x/=l;y/=l}
+ return {x,y};
+}
+function updatePlayer(dt){
+ const i=input();
+ if(player.inCar){
+  const c=player.inCar;
+  const throttle=-i.y;
+  const steer=i.x;
+  c.speed+=(throttle*28-c.speed*1.8)*dt;
+  c.speed=Math.max(-12,Math.min(34,c.speed));
+  c.group.rotation.y-=steer*(.8+Math.abs(c.speed)/35)*dt;
+  const f=new THREE.Vector3(Math.sin(c.group.rotation.y),0,Math.cos(c.group.rotation.y));
+  c.group.position.addScaledVector(f,c.speed*dt);
+  c.group.position.x=Math.max(-325,Math.min(325,c.group.position.x));
+  c.group.position.z=Math.max(-325,Math.min(325,c.group.position.z));
+  player.pos.copy(c.group.position);
+  c.wheels.forEach(w=>w.rotation.x-=c.speed*dt*2.4);
+ }else{
+  const speed=player.run||keys.shift?9:5;
+  if(Math.hypot(i.x,i.y)>.08){
+   player.yaw=Math.atan2(i.x,-i.y);
+   player.pos.x+=Math.sin(player.yaw)*speed*dt;
+   player.pos.z+=Math.cos(player.yaw)*speed*dt;
+  }
+  player.pos.x=Math.max(-325,Math.min(325,player.pos.x));
+  player.pos.z=Math.max(-325,Math.min(325,player.pos.z));
+  avatar.position.copy(player.pos);
+  avatar.rotation.y=player.yaw;
+ }
+}
+function updateNPC(dt){
+ for(const n of npcs){
+  n.t+=dt;
+  n.group.position.x+=Math.sin(n.dir)*dt*.8;
+  n.group.position.z+=Math.cos(n.dir)*dt*.8;
+  if(Math.random()<.004)n.dir+=Math.random()*2-1;
+  if(Math.abs(n.group.position.x)>320||Math.abs(n.group.position.z)>320)n.dir+=Math.PI;
+ }
+}
+function updatePrompt(){
+ const p=document.getElementById('prompt');
+ if(player.inCar)p.style.opacity=1,p.textContent='برای خروج از خودرو «ورود» یا E را بزن';
+ else if(nearestCar())p.style.opacity=1,p.textContent='برای ورود به خودرو E را بزن';
+ else if(!mission.done&&player.pos.distanceTo(marker.position)<9)p.style.opacity=1,p.textContent='برای دریافت پاداش «عمل» را بزن';
+ else p.style.opacity=0;
+}
+function toggleMap(){
+ const m=document.getElementById('map');m.style.display=m.style.display==='block'?'none':'block';
+ drawMap();
+}
+function drawMap(){
+ const c=document.getElementById('mapCanvas'),ctx=c.getContext('2d');
+ ctx.clearRect(0,0,c.width,c.height);ctx.fillStyle='#28312c';ctx.fillRect(0,0,c.width,c.height);
+ const scale=c.width/680;
+ ctx.strokeStyle='#555';ctx.lineWidth=9;
+ for(let v=-300;v<=300;v+=60){
+  let q=(v+340)*scale;
+  ctx.beginPath();ctx.moveTo(q,0);ctx.lineTo(q,c.height);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,q);ctx.lineTo(c.width,q);ctx.stroke();
+ }
+ ctx.fillStyle='#ffcf32';
+ ctx.beginPath();ctx.arc((mission.x+340)*scale,(mission.z+340)*scale,6,0,7);ctx.fill();
+ ctx.fillStyle='#fff';
+ ctx.beginPath();ctx.arc((player.pos.x+340)*scale,(player.pos.z+340)*scale,5,0,7);ctx.fill();
+}
+function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)}
+addEventListener('resize',resize);
+
+document.getElementById('startBtn').onclick=()=>{
+ document.getElementById('start').style.display='none';
+ renderer.domElement.requestPointerLock?.();
+};
+let last=performance.now();
+function loop(now){
+ requestAnimationFrame(loop);
+ const dt=Math.min((now-last)/1000,.05);last=now;
+ updatePlayer(dt);updateNPC(dt);setCamera();updatePrompt();
+ marker.rotation.z+=dt*.8;
+ if(document.getElementById('map').style.display==='block')drawMap();
+ renderer.render(scene,camera);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
